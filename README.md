@@ -12,6 +12,7 @@ Built as a personal tool. It talks directly from your browser to the Gmail API u
 - **Batch archive or trash**, at sender level or per message
 - **Shift-click range select** on both sender and message checkboxes
 - **Stop button** that cancels a running scan and keeps the partial results
+- **Sign-in status** in the panel header (signed in with time left, or signed out), with Sign in / Sign out buttons. Sign out also revokes the token with Google
 - **Undo toast** for 15 seconds after any archive or trash
 - **Unsubscribe link** shown for senders that send a `List-Unsubscribe` header
 
@@ -25,7 +26,7 @@ Trash uses Gmail's normal trash, so everything stays recoverable for 30 days. No
 | `background.js` (service worker) | OAuth, token caching, and all Gmail API calls (`messages.list`, `messages.get`, `messages.batchModify`) |
 | `manifest.json` | Manifest V3, with permissions limited to `identity`, `storage`, and the two Gmail hosts |
 
-Auth uses `chrome.identity.launchWebAuthFlow` against a standard **Web application** OAuth client. The access token is cached in `chrome.storage.session` (cleared when the browser closes) and reused until it expires, so page reloads don't force a new login.
+Auth uses `chrome.identity.launchWebAuthFlow` against a standard **Web application** OAuth client. The access token is cached in `chrome.storage.session` (cleared when the browser closes) and reused until it expires, so page reloads don't force a new login. The token's expiry time is known up front, so the panel flips to a signed-out state when it runs out (or the moment the API returns a 401) instead of failing on your next click. There is no refresh token in this flow, so expiry (about an hour) means signing in again.
 
 Scans read message metadata only (From, Subject, Date, List-Unsubscribe), never bodies. The default scan cap is 3,000 messages.
 

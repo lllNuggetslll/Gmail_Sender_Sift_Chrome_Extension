@@ -78,12 +78,32 @@ async function setCachedToken(token, expiresInSeconds) {
   try {
     await chrome.storage.session.set({ ssToken: token, ssTokenExpiry: cachedTokenExpiry });
   } catch (e) { /* non-fatal — still cached in memory for this worker's lifetime */ }
+  broadcastAuth(true, cachedTokenExpiry);
 }
 
 function clearCachedToken() {
   cachedToken = null;
   cachedTokenExpiry = 0;
   try { chrome.storage.session.remove(['ssToken', 'ssTokenExpiry']); } catch (e) { /* non-fatal */ }
+  broadcastAuth(false, 0);
+}
+
+// Non-interactive: reports whether a usable token exists right now, without
+// ever opening a sign-in window.
+async function getAuthStatus() {
+  const token = await getCachedToken();
+  return { signedIn: !!token, expiresAt: token ? cachedTokenExpiry : 0 };
+}
+
+// Best-effort revoke so "sign out" really ends the grant, not just the local copy.
+async function signOut() {
+  const token = await getCachedToken();
+  clearCachedToken();
+  if (token) {
+    try {
+      await fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(token), { method: 'POST' });
+    } catch (e) { /* offline or already invalid — local state is cleared either way */ }
+  }
 }
 
 async function getToken() {
@@ -103,6 +123,12 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => progressPorts.delete(port));
 });
 
+function broadcastAuth(signedIn, expiresAt) {
+  for (const port of progressPorts) {
+    try { port.postMessage({ auth: { signedIn, expiresAt } }); } catch (e) { /* port closed */ }
+  }
+}
+
 function reportProgress(done, total, phase) {
   for (const port of progressPorts) {
     try { port.postMessage({ done, total, phase }); } catch (e) { /* port closed */ }
@@ -114,6 +140,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     getToken()
       .then((token) => sendResponse({ token }))
       .catch((err) => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'AUTH_STATUS') {
+    getAuthStatus().then(sendResponse);
+    return true;
+  }
+
+  if (msg.type === 'SIGN_OUT') {
+    signOut().then(() => sendResponse({ ok: true }));
     return true;
   }
 

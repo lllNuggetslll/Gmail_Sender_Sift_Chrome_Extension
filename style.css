@@ -43,6 +43,34 @@
   color: #fff;
 }
 .sift-head strong { font-size: 14px; }
+.sift-head { gap: 8px; }
+.sift-auth {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.22);
+  white-space: nowrap;
+}
+.sift-auth.sift-auth-warn { background: #fbbc04; color: #202124; }
+.sift-auth.sift-auth-out { background: #d93025; }
+.sift-auth-btn {
+  border: 1px solid rgba(255,255,255,0.7);
+  background: transparent;
+  color: #fff;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.sift-auth-btn:hover { background: rgba(255,255,255,0.15); }
+.sift-authbanner {
+  padding: 8px 14px;
+  background: #fce8e6;
+  color: #b3261e;
+  font-size: 12px;
+}
+#sift-root.sift-signed-out .sift-body { opacity: 0.85; }
 .sift-icon-btn {
   background: none;
   border: none;

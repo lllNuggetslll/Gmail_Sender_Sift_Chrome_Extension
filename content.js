@@ -16,7 +16,7 @@
   ];
 
   const state = {
-    token: null,
+    auth: { signedIn: false, expiresAt: 0 },
     query: 'in:inbox',
     year: '', // '' = any year, else a 4-digit year string
     sortMode: 'count',
@@ -60,6 +60,8 @@
     panelEl.innerHTML = `
       <div class="sift-head">
         <strong>Sender Sift</strong>
+        <span id="sift-auth" class="sift-auth sift-auth-out" title="Google sign-in status">Signed out</span>
+        <button id="sift-authbtn" class="sift-auth-btn">Sign in</button>
         <button id="sift-close" class="sift-icon-btn" title="Close">&times;</button>
       </div>
       <div class="sift-chips" id="sift-chips"></div>
@@ -116,6 +118,19 @@
     });
 
     panelEl.querySelector('#sift-close').addEventListener('click', () => panelEl.classList.add('sift-hidden'));
+    panelEl.querySelector('#sift-authbtn').addEventListener('click', async () => {
+      if (state.auth.signedIn) {
+        await send({ type: 'SIGN_OUT' });
+        applyAuth({ signedIn: false, expiresAt: 0 });
+      } else {
+        try {
+          await ensureToken();
+        } catch (err) {
+          setAuthMessage('Sign-in failed: ' + err.message);
+        }
+        refreshAuthStatus();
+      }
+    });
     panelEl.querySelector('#sift-scan').addEventListener('click', () => {
       if (state.scanning) {
         send({ type: 'STOP_SCAN' });
@@ -139,12 +154,75 @@
 
     connectProgress();
     restoreIfAny();
+    refreshAuthStatus();
+    // Expiry is known up front, so a light tick is enough to notice it (and to
+    // keep the countdown honest); the background also pushes a signed-out
+    // message the moment the API returns 401 or the user signs out elsewhere.
+    setInterval(renderAuth, 15000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refreshAuthStatus();
+    });
+  }
+
+  // ---- auth state -------------------------------------------------------
+  let authMessage = '';
+
+  function setAuthMessage(text) {
+    authMessage = text;
+    renderAuth();
+  }
+
+  function applyAuth(auth) {
+    state.auth = auth;
+    if (auth.signedIn) authMessage = '';
+    renderAuth();
+  }
+
+  async function refreshAuthStatus() {
+    try {
+      applyAuth(await send({ type: 'AUTH_STATUS' }));
+    } catch (e) { /* worker asleep or extension reloading — next tick retries */ }
+  }
+
+  function renderAuth() {
+    const pill = document.getElementById('sift-auth');
+    const btn = document.getElementById('sift-authbtn');
+    if (!pill || !btn) return;
+    // Trust the clock too: if the known expiry has passed, flip to signed out
+    // immediately rather than waiting for a failed request to tell us.
+    if (state.auth.signedIn && Date.now() >= state.auth.expiresAt) {
+      state.auth = { signedIn: false, expiresAt: 0 };
+      authMessage = 'Session expired — sign in again to continue.';
+      refreshAuthStatus();
+    }
+    const signedIn = state.auth.signedIn;
+    const mins = Math.max(1, Math.ceil((state.auth.expiresAt - Date.now()) / 60000));
+    pill.textContent = signedIn ? `Signed in · ${mins} min left` : 'Signed out';
+    pill.classList.toggle('sift-auth-out', !signedIn);
+    pill.classList.toggle('sift-auth-warn', signedIn && mins <= 5);
+    btn.textContent = signedIn ? 'Sign out' : 'Sign in';
+    panelEl.classList.toggle('sift-signed-out', !signedIn);
+    let banner = document.getElementById('sift-authbanner');
+    if (!signedIn && authMessage) {
+      if (!banner) {
+        banner = el('div', { id: 'sift-authbanner', class: 'sift-authbanner' });
+        panelEl.querySelector('.sift-head').after(banner);
+      }
+      banner.textContent = authMessage;
+    } else if (banner) {
+      banner.remove();
+    }
   }
 
   function connectProgress() {
     try {
       const port = chrome.runtime.connect({ name: 'sift-progress' });
       port.onMessage.addListener((msg) => {
+        if (msg.auth) {
+          if (!msg.auth.signedIn && state.auth.signedIn) authMessage = 'Session expired — sign in again to continue.';
+          applyAuth(msg.auth);
+          return;
+        }
         const wrap = document.getElementById('sift-progress');
         const bar = document.getElementById('sift-progress-bar');
         const text = document.getElementById('sift-progress-text');
@@ -167,12 +245,13 @@
     return new Promise((resolve) => chrome.runtime.sendMessage(message, resolve));
   }
 
+  // Always ask the background worker: it owns the token and its expiry, and
+  // answers instantly from cache while the token is valid. Holding a copy here
+  // is what let an expired token keep getting used.
   async function ensureToken() {
-    if (state.token) return state.token;
     const resp = await send({ type: 'AUTH' });
     if (resp.error) throw new Error(resp.error);
-    state.token = resp.token;
-    return state.token;
+    return resp.token;
   }
 
   function updateScanButton() {

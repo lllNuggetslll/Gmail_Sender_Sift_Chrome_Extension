@@ -2,6 +2,10 @@
 
 A small Chrome extension for cleaning out a large Gmail inbox. It adds a floating panel inside Gmail that scans your mail, groups it by sender, and lets you archive or trash whole senders at once.
 
+<p align="center">
+  <img src="docs/empty-state.png" alt="The Sender Sift panel before a scan: quick filter chips, query box, year filter, and Scan button" width="428">
+</p>
+
 Built as a personal tool. It talks directly from your browser to the Gmail API using your own OAuth client. There is no backend server, no analytics, and no third party ever sees your mail.
 
 ## Features
